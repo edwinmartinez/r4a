@@ -1,0 +1,6 @@
+name = Rankea Image Styles
+description = Custom Image Styles for Rankea
+package = Rankea
+core = 7.x
+
+version = "7.x-1.x-dev"

@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * Implements hook_image_default_styles().
+ */
+function rankea_img_image_default_styles() {
+  $styles = array();
+
+  $styles['rankea_thumbnail'] = array(
+    'effects' => array(
+      array(
+        'name' => 'image_scale_and_crop',
+        'data' => array('width' => 100, 'height' => 80),
+        'weight' => 0,
+      ),
+    )
+  );
+
+  $styles['rankea_medium'] = array(
+    'effects' => array(
+      array(
+        'name' => 'image_scale',
+        'data' => array('width' => 220, 'height' => 220, 'upscale' => 1),
+        'weight' => 0,
+      ),
+    )
+  );
+  
+  return $styles;
+}

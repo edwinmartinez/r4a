@@ -1,0 +1,284 @@
+<?php
+
+/**
+ * Implementation of hook_menu
+ * @return multitype:string 
+ */
+function rankea_mods_menu(){
+	$items = array();
+	$items['c'] = array(
+	'access arguments' => array('access content'),
+    'page callback' => 'rankea_mods_view',
+ 
+  );
+  // Need at least one child item before your section will appear.
+  /*$items['admin/config/mymodule/item'] = array(
+    'title' => 'First item',
+    'description' => 'This is the first child item in the section',
+    'page callback' => 'mymodule_item_callback',
+    'access arguments' => array('administer site configuration'),
+  );
+  */
+  return $items;
+	
+}
+
+function rankea_mods_view($city = 'tijuana', $biztype = 'sometype') {
+    // ...
+    //$output = $biztype . " de " . $city;
+    
+  	
+	$city = str_replace('-', ' ', $city);
+  	
+    // instantiate the query
+  
+	// get the city term id
+  	// location_taxonomize
+  	$city_tids = taxonomy_get_term_by_name($city, $vocabulary = 'location_taxonomize');
+  	//$city_tids = (array)$city_tids;
+  	foreach ($city_tids as $k=>$value){
+  		$city_tid = $value->tid;
+  		$city_name = $value->name;
+  		break;
+  	}
+  	// tijuana tid: 956
+  	
+	
+  //get the biztype term
+  $biztype =  str_replace('-', ' ', $biztype);
+  
+  $biztype_tids = taxonomy_get_term_by_name($biztype, $vocabulary = 'negocios');
+  //dsm($biztype_tids);
+  
+   foreach ($biztype_tids as $k=>$value){
+  		//dsm($value);
+  		$biztype_tid = $value->tid;
+  		$biztype_name = $value->name;
+  		break;
+  	}
+  	
+  	//set the title
+  	 drupal_set_title($city_name . ': ' . $biztype_name );
+  	
+  	// get the sublevels of this term
+  	//"SELECT * FROM {taxonomy_term_hierarchy} t where parent = :parent"
+  	//get all the sub terms tid
+  	$child_terms = array();
+  	$biz_tids = array();
+  	$child_terms = taxonomy_get_children($biztype_tid, $vid = 9);
+  	foreach ($child_terms as $k => $v) {
+  		$biz_tids[] = $k;
+  	}
+  	array_unshift($biz_tids, (int)$biztype_tid);
+  	
+  	// alternatively you could use a query like the following
+	//$res = db_query("select t.name, t.tid, t.vid,t.language  
+	// from taxonomy_term_data t inner join taxonomy_term_hierarchy th on t.tid = th.tid 
+	// where vid = 9 and th.parent = :parent", array(':parent' => $biztype_tid));
+  
+  
+		//dsm(node_view_multiple(node_load_multiple($result_nids)));
+ 
+  $result_nids = rankea_mods_get_region_list($city_tid, $biz_tids);
+  
+  $output = array();
+  // return the nodes as teasers
+  //if (!empty($result['node'])) {
+  if(!empty($result_nids)) { 
+    $output['#bundle'] = 'region-list';
+    $output['#prefix'] = '<div class="region-list"><ol>';
+    $output['nodes'] = node_view_multiple(node_load_multiple($result_nids), 'basic_list');
+    $output['pager']['#markup'] = theme('pager', $query->pager);
+    $output['#suffix']='</ol></div> <!-- end of region-list-->';
+  }
+  else {
+    $output['status']['#markup'] = t('No results were returned.');
+  }
+  return $output;
+    
+    
+}
+
+
+/**
+ * Get city name from the taxonomy term object
+ * @param object $node
+ */
+function taxonomy_node_get_city_name($node) {
+    static $terms;
+	$term_id = $node->field_location_taxonomize_terms['und'][0]['tid'];
+	$city_name = '';
+    if (!isset($terms[$node->vid]['city'])) {
+        $query = db_select('taxonomy_index', 'r');
+        $t_alias = $query->join('taxonomy_term_data', 't', 'r.tid = t.tid');
+        $query->fields('t',array('tid','name') );
+        $query->condition("r.nid", $node->nid)
+        ->condition('t.tid',$term_id);
+        $result = $query->execute();
+        $terms[$node->vid]['city'] = array();
+        foreach ($result as $term) {
+            $terms[$node->vid]['city'][] = $term;
+        }
+    }
+    return $terms[$node->vid]['city'];
+}
+
+function rankea_mods_preprocess_node(&$variables){
+	//kpr($variables);	
+	//if($variables['type'] == 'region_landing'){
+	//kpr(arg(0));
+	
+	// let's set the city name for the field_bus_category field
+
+	$node = $variables['node'];
+	
+   // The vocabulary I'm after has a tid (term id) of '2'. 
+    $results = taxonomy_node_get_city_name($node);
+    if(is_array($results)) {
+        foreach ($results as $item) {
+          $variables['node']->city_name = str_replace(' ', '-', strtolower($item->name));	
+        }
+    }
+	//kpr($variables['node']->city_name);
+	
+	//kpr($node->field_location_taxonomize_terms['und'][0]['tid']);
+	
+	if(
+		($variables['type'] == 'restaurant_bar'
+		|| $variables['type'] == 'business' 
+		|| $variables['type'] == 'hotels' )
+		&& $variables['view_mode'] == 'basic_list'
+	) {
+		$variables['theme_hook_suggestions'][] = 'node__region_term';
+		 
+	}
+
+	
+}
+
+function rankea_mods_page_alter(&$page) {
+	//dsm($page);
+	$nid = arg(1);
+	if(isset($page['content']['system_main']['nodes'][$nid]['#bundle']) 
+				&& $page['content']['system_main']['nodes'][$nid]['#bundle'] == 'region_landing'){
+		$city = strtolower($page['content']['system_main']['nodes'][$nid]['locations']['#locations'][0]['city']);
+		$city = str_replace(' ', '-', $city);
+		//get all the vida nocturna sub terms tid: 661
+		$res = db_query("select t.name, t.tid, t.vid,t.language  from taxonomy_term_data t inner join taxonomy_term_hierarchy th on t.tid = th.tid where vid = 9 and th.parent = :parent", array(':parent' => 661));
+    	
+		$vn_tids = array();
+		foreach ($res as $row) {
+			$vn_tids[] = $row->tid;
+		}
+		
+		// the views for the home page
+		$views = array(
+			'restaurants_loc_term' => array('preview' => 'page','title' => 'Restaurantes'),
+			'hotels_loc_term' => array('preview' => 'page', 'title' => 'Hoteles'),
+			'nightlife_by_city_es' => array('preview' => 'block', 'title' => "Vida Nocturna",
+			//array('663')
+			),
+			"shopping_by_city_es" => array('preview' => 'block', 'title' => 'Compras'),
+			"beauty_and_spa_by_city_es" => array('preview' => 'block', 'title' => 'Belleza y Spa')
+		);
+		
+		$views_output = '<div class="region-views clearfix">';
+		$views_output .= rankea_mods_load_view($views);
+		$views_output .= '</div>';
+		
+		//let's output the business types
+		$views = array("businesses_terms" => array('preview' => 'block', 'title' => 'Por Categoria'));
+		$views_output .= '<div class="biz-types-view clearfix">';
+		//dsm(arg());
+		$views_output .= str_replace('/negocios/', "/c/$city/", rankea_mods_load_view($views));
+		$views_output .= '</div>';
+       
+		
+		if(isset($page['content']['system_main']['nodes'][$nid]['body'][0]['#markup'])) {
+			$page['content']['system_main']['nodes'][$nid]['body'][0]['#markup'] .= $views_output;
+		}else {
+		
+		 $page['content']['system_main']['nodes'][$nid]['body'][0]['#markup'] = $views_output;
+		}
+		
+	}
+
+	
+}
+
+function rankea_mods_load_view($views){
+	$views_output = '';
+	foreach ($views as $view_name => $properties) {
+			//dsm($view_name);
+			$view = views_get_view($view_name);
+			
+			if (!is_object($view)) break;
+
+			// generate view html
+			//$viewHtml = views_build_view($properties['preview'], $view, $args, FALSE, $view->nodes_per_block);
+			
+			if(isset($view->block_title) && $view->block_title) {
+				$views_output .= "<h2>".$view->block_title."</h2>";
+			} else {
+				//$views_output .= "<h2>".$properties['title']."</h2>";
+				// $view->block_title = $properties['title'];
+			}
+			//$views_output .= $view->preview($properties['preview']);
+
+
+			$args = (isset($properties['args']))? $properties['args']:'';
+			//dsm($args);
+			$views_output .= $view->preview($properties['preview'], $args);
+			//$views_output .= views_embed_view($view_name, 'default', $myargs);
+		}
+		return $views_output;
+
+}
+
+function rankea_mods_get_latest_bus_terms(){
+	
+}
+
+/*
+ * gets the city businesses for that term
+ */
+function rankea_mods_get_region_list($city_tid, $biz_term_tids,$page = 1) {
+	// set some defaults
+	$records_per_page = 10;
+	$offset = ($page * $records_per_page) - $records_per_page;
+	//$offset = 0;
+	
+	$order_by_array = array('rating DESC','node.created DESC');
+	$order_by = implode(', ', $order_by_array);
+	
+	// custom query to get the terms of a city ordered by rating as default
+ 	$biz_term_tids_csv = implode(', ', $biz_term_tids);
+	$result = db_query("SELECT DISTINCT field_data_field_location_taxonomize_terms0.entity_type AS entity_type, 
+	field_data_field_location_taxonomize_terms0.entity_id AS entity_id, 
+	field_data_field_location_taxonomize_terms0.revision_id AS revision_id, 
+	field_data_field_location_taxonomize_terms0.bundle AS bundle,
+	fivestar.value as rating
+	FROM {field_data_field_location_taxonomize_terms} field_data_field_location_taxonomize_terms0 
+	INNER JOIN {field_data_field_bus_category} field_data_field_bus_category1 
+	ON field_data_field_bus_category1.entity_type = field_data_field_location_taxonomize_terms0.entity_type 
+	AND field_data_field_bus_category1.entity_id = field_data_field_location_taxonomize_terms0.entity_id 
+	INNER JOIN {node} node ON node.nid = field_data_field_location_taxonomize_terms0.entity_id 
+	LEFT JOIN {votingapi_cache} as fivestar ON fivestar.entity_id = node.nid AND fivestar.function = 'average'
+	WHERE (field_data_field_location_taxonomize_terms0.field_location_taxonomize_terms_tid = :city_tid) 
+	AND (field_data_field_bus_category1.field_bus_category_tid IN ($biz_term_tids_csv)) 
+	AND (field_data_field_location_taxonomize_terms0.deleted = 0) 
+	AND (node.status = 1) 
+	AND (field_data_field_location_taxonomize_terms0.entity_type = 'node') 
+	AND (field_data_field_location_taxonomize_terms0.bundle IN ('restaurant_bar','business', 'hotels')) 
+	ORDER BY $order_by LIMIT $records_number OFFSET $offset",
+	array(':city_tid' => $city_tid)
+	);
+  
+	$result_nids = array();
+  		foreach ($result as $row) {
+			//$biz_tids[] = $row->tid;
+			$result_nids[] = $row->entity_id;
+		};
+	return $result_nids;
+
+}
